@@ -151,7 +151,7 @@ export function ViewerCanvas() {
 
   return (
     <div className="h-[60vh] w-full overflow-hidden rounded-xl border border-cyan-400/20">
-      <Canvas camera={{ position: [0, 0, 2.2], fov: 45 }} dpr={dpr} shadows>
+      <Canvas camera={{ position: [0, 0, 3.5], fov: 45 }} dpr={dpr} shadows>
         <SceneContent />
       </Canvas>
     </div>
