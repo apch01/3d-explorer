@@ -23,7 +23,7 @@ const MODEL_URL =
 export function useGestureControls() {
   const enabled = useViewerStore((s) => s.gestureEnabled);
   const setMode = useViewerStore((s) => s.setGestureMode);
-  const rotateModelBy = useViewerStore((s) => s.rotateModelBy);
+  const addGestureDelta = useViewerStore((s) => s.addGestureDelta);
   const scaleModelBy = useViewerStore((s) => s.scaleModelBy);
   const zoomCameraBy = useViewerStore((s) => s.zoomCameraBy);
   const [lastEvent, setLastEvent] = useState<GestureEvent | null>(null);
@@ -31,6 +31,7 @@ export function useGestureControls() {
   const [ready, setReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastWristX = useRef<number | null>(null);
+  const lastWristY = useRef<number | null>(null);
   const lastTwoHandDistance = useRef<number | null>(null);
   const lastActionAt = useRef(0);
 
@@ -96,24 +97,35 @@ export function useGestureControls() {
       }
     }
 
-    if (wrist && lastWristX.current !== null) {
+    if (wrist && lastWristX.current !== null && lastWristY.current !== null) {
       const xDelta = wrist.x - lastWristX.current;
-      if (Math.abs(xDelta) > 0.02) {
-        rotateModelBy(-xDelta * 2.4);
+      const yDelta = wrist.y - lastWristY.current;
+      if (Math.abs(xDelta) > 0.02 || Math.abs(yDelta) > 0.02) {
+        // Route through OrbitControls: azimuth = horizontal, polar = vertical
+        addGestureDelta(xDelta * 2.4, yDelta * 2.4);
+        const dominant =
+          Math.abs(xDelta) > Math.abs(yDelta)
+            ? xDelta > 0 ? "SwipeRight" : "SwipeLeft"
+            : yDelta > 0 ? "SwipeDown" : "SwipeUp";
         publishEvent({
           mode: "rotate",
-          confidence: Math.min(1, Math.abs(xDelta) * 16),
-          label: xDelta > 0 ? "SwipeRight" : "SwipeLeft",
+          confidence: Math.min(1, Math.max(Math.abs(xDelta), Math.abs(yDelta)) * 16),
+          label: dominant,
         });
         lastActionAt.current = now;
         lastWristX.current = wrist.x;
+        lastWristY.current = wrist.y;
         return;
       }
     }
-    if (wrist) lastWristX.current = wrist.x;
+    if (wrist) {
+      lastWristX.current = wrist.x;
+      lastWristY.current = wrist.y;
+    }
 
     if (label === "Closed_Fist") {
-      publishEvent({ mode: "pause", confidence, label });
+      zoomCameraBy(0.1);
+      publishEvent({ mode: "zoom", confidence, label: "Closed_Fist (zoom out)" });
       lastActionAt.current = now;
       return;
     }
@@ -125,7 +137,7 @@ export function useGestureControls() {
     }
 
     publishEvent({ mode: "none", confidence, label });
-  }, [rotateModelBy, scaleModelBy, publishEvent, zoomCameraBy]);
+  }, [addGestureDelta, scaleModelBy, publishEvent, zoomCameraBy]);
 
   useEffect(() => {
     if (!enabled) {
@@ -169,15 +181,25 @@ export function useGestureControls() {
         setReady(true);
         setError(null);
 
+        let lastTimestamp = -1;
+
         const tick = () => {
           if (!active || !recognizer) return;
+
           if (videoElement.readyState >= 2) {
-            const result = recognizer.recognizeForVideo(
-              videoElement,
-              performance.now(),
-            );
-            detectFromResult(result);
+            const ts = performance.now();
+            // MediaPipe requires strictly increasing timestamps — skip duplicate frames
+            if (ts > lastTimestamp) {
+              try {
+                const result = recognizer.recognizeForVideo(videoElement, ts);
+                detectFromResult(result);
+                lastTimestamp = ts;
+              } catch {
+                // A single bad frame shouldn't break the loop
+              }
+            }
           }
+
           animationFrame = window.requestAnimationFrame(tick);
         };
 
@@ -205,6 +227,7 @@ export function useGestureControls() {
         videoElement.srcObject = null;
       }
       lastWristX.current = null;
+      lastWristY.current = null;
       lastTwoHandDistance.current = null;
       setReady(false);
     };

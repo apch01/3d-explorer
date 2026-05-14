@@ -18,7 +18,7 @@ const GESTURE_GUIDE = [
   },
   {
     gesture: "✊ Closed Fist",
-    action: "Pause — freezes all gesture interaction",
+    action: "Zoom out — pull camera back",
   },
   {
     gesture: "👋 Swipe Left / Right",

@@ -11,6 +11,8 @@ type ControlPanelProps = {
 export function ControlPanel({ onFileLoaded }: ControlPanelProps) {
   const modelName = useViewerStore((s) => s.modelName);
   const fps = useViewerStore((s) => s.fps);
+  const autoRotate = useViewerStore((s) => s.autoRotate);
+  const toggleAutoRotate = useViewerStore((s) => s.toggleAutoRotate);
   const requestCameraReset = useViewerStore((s) => s.requestCameraReset);
 
   const onDrop = useCallback(
@@ -54,12 +56,22 @@ export function ControlPanel({ onFileLoaded }: ControlPanelProps) {
 
       <p className="truncate text-xs text-slate-400">Model: {modelName}</p>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <button
           onClick={requestCameraReset}
           className="rounded-md bg-slate-700 px-3 py-2 text-xs text-white hover:bg-slate-600"
         >
           Reset Camera
+        </button>
+        <button
+          onClick={toggleAutoRotate}
+          className={`rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+            autoRotate
+              ? "bg-cyan-600 text-white hover:bg-cyan-500"
+              : "bg-slate-700 text-white hover:bg-slate-600"
+          }`}
+        >
+          {autoRotate ? "Stop Spin" : "Auto Spin"}
         </button>
         <button
           onClick={openFullscreen}
