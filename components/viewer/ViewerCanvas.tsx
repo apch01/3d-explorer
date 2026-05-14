@@ -57,7 +57,7 @@ function SceneContent() {
       }
     }
     previousTime.current = state.clock.elapsedTime;
-  });
+  }); 
 
   return (
     <>
