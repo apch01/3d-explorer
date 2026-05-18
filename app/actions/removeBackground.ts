@@ -1,6 +1,10 @@
 "use server";
 
-import { removeBackground } from "@imgly/background-removal-node";
+// NOTE: @imgly/background-removal-node is intentionally NOT imported at the
+// module level.  It loads onnxruntime-node native binaries at import time, which
+// can crash the serverless cold-start on Vercel before any request is handled.
+// The dynamic import below defers binary loading until the action is actually
+// called.
 
 /**
  * Server Action: Remove the background from a portrait image.
@@ -24,23 +28,27 @@ export async function removePortraitBackground(
 
   const file = rawEntry satisfies File;
 
-  // Reject suspiciously large uploads (belt-and-suspenders on top of the
-  // bodySizeLimit set in next.config.ts)
+  // Belt-and-suspenders size guard (bodySizeLimit in next.config.ts is the
+  // primary limit; this catches any bypass attempts)
   const MAX_BYTES = 20 * 1024 * 1024; // 20 MB
   if (file.size > MAX_BYTES) {
     return { error: "Image exceeds the 20 MB size limit." };
   }
 
   try {
-    // Step 1 – Run AI background removal; the package returns a transparent PNG Blob
-    // Run background removal; the library returns a transparent PNG Blob.
-    // The 'medium' model gives the best quality; swap to 'small' for speed.
+    // Deferred import: native ONNX binaries are loaded here, not at module
+    // init time, so a missing/incompatible binary won't crash the cold start.
+    const { removeBackground } = await import(
+      "@imgly/background-removal-node"
+    );
+
+    // removeBackground returns a transparent-background PNG Blob
     const resultBlob = await removeBackground(file, {
       model: "medium",
       output: { format: "image/png" },
     });
 
-    // Step 2 – Convert the Blob → ArrayBuffer → base64 string
+    // Convert Blob → ArrayBuffer → base64 data URL for the client
     const arrayBuffer = await resultBlob.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
 
@@ -52,3 +60,4 @@ export async function removePortraitBackground(
     return { error: `Background removal failed: ${message}` };
   }
 }
+
