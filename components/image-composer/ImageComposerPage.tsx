@@ -5,8 +5,8 @@
  *
  * Full client-side image composition tool:
  *   1. User uploads a portrait, background and/or overlay.
- *   2. Portrait background is removed via a Next.js Server Action
- *      (`@imgly/background-removal-node` running on the server).
+ *   2. Portrait background is removed client-side via @imgly/background-removal
+ *      (ONNX WASM — no server required, no native binaries).
  *   3. The three layers are composited on an HTML5 Canvas element:
  *        Layer 1  →  Background image
  *        Layer 2  →  Human cutout (transparent PNG)
@@ -23,7 +23,6 @@ import React, {
   useState,
 } from "react";
 import { useDropzone } from "react-dropzone";
-import { removePortraitBackground } from "@/app/actions/removeBackground";
 import {
   loadImage,
   drawComposition,
@@ -321,30 +320,46 @@ export default function ImageComposerPage() {
       return;
     }
 
-    dispatch({ type: "START_PROCESSING", stage: "Uploading portrait to server…" });
+    dispatch({ type: "START_PROCESSING", stage: "Loading AI model…" });
 
     try {
-      // Step 1 – Package the file into FormData and send to the Server Action
-      const formData = new FormData();
-      formData.append("image", state.portraitFile);
+      // Step 1 – Dynamically import the WASM package to avoid SSR evaluation.
+      //          @imgly/background-removal runs entirely in the browser via
+      //          ONNX Web (WASM) — no server round-trip, no native binaries.
+      const { removeBackground } = await import("@imgly/background-removal");
 
       dispatch({ type: "SET_STAGE", stage: "Running AI background removal…" });
 
-      const result = await removePortraitBackground(formData);
+      const resultBlob = await removeBackground(state.portraitFile, {
+        output: { format: "image/png" },
+        // Report download / inference progress in the UI
+        progress: (key: string, current: number, total: number) => {
+          if (total > 0) {
+            const label = key.includes("fetch") ? "Downloading model" : "Processing";
+            dispatch({
+              type: "SET_STAGE",
+              stage: `${label}… ${Math.round((current / total) * 100)}%`,
+            });
+          }
+        },
+      });
 
-      if ("error" in result) {
-        dispatch({ type: "SET_ERROR", error: result.error });
-        return;
+      dispatch({ type: "SET_STAGE", stage: "Compositing layers…" });
+
+      // Step 2 – Load the transparent PNG blob into an HTMLImageElement.
+      //          Use a temporary object URL; revoke it once the image is decoded
+      //          to free the underlying Blob memory immediately.
+      const tempUrl = URL.createObjectURL(resultBlob);
+      let portraitImg: HTMLImageElement;
+      try {
+        portraitImg = await loadImage(tempUrl);
+      } finally {
+        URL.revokeObjectURL(tempUrl);
       }
 
-      // Step 2 – Store the processed data URL and load it as an HTMLImageElement
-      dispatch({ type: "SET_STAGE", stage: "Compositing layers…" });
-      dispatch({ type: "SET_PROCESSED_PORTRAIT", url: result.dataUrl });
-
-      const portraitImg = await loadImage(result.dataUrl);
       layersRef.current.portrait = portraitImg;
 
-      // Step 3 – Redraw with the new portrait in place
+      // Step 3 – Redraw the canvas with the new portrait layer
       redraw();
 
       dispatch({ type: "FINISH_PROCESSING" });
